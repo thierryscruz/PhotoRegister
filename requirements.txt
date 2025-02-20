@@ -1,2 +1,8 @@
 pyqt5
 pandas
+opencv-python
+numpy
+openpyxl
+unidecode
+opencv-python
+pyinstaller

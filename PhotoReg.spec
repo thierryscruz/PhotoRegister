@@ -5,13 +5,14 @@ a = Analysis(
     ['PhotoReg.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('D:/Clientes/RAPIDONET/PhotoRegister/venv/Lib/site-packages/cv2/data/haarcascade_frontalface_default.xml', 'cv2/data')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
     noarchive=False,
+    optimize=0,
 )
 pyz = PYZ(a.pure)
 

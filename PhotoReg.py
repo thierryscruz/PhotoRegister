@@ -1,5 +1,6 @@
 import sys
 import os
+os.environ["OPENCV_VIDEOIO_MSMF_ENABLE_HW_TRANSFORMS"] = "0"
 import cv2
 import pandas as pd
 from PyQt5.QtWidgets import (
@@ -15,14 +16,26 @@ from PyQt5.QtWidgets import (
     QComboBox
 )
 from PyQt5.QtCore import QTimer, Qt, QStringListModel
-from PyQt5.QtGui import QImage, QPixmap
+from PyQt5.QtGui import QImage, QPixmap, QIcon, QFont
 
+def resource_path(relative_path):
+    """Retorna o caminho absoluto para recursos no pacote"""
+    try:
+        # PyInstaller cria uma pasta temporária para armazenar arquivos
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+# Caminho do classificador Haar
+face_cascade = cv2.CascadeClassifier(resource_path('cv2/data/haarcascade_frontalface_default.xml'))
 
 class MainApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Photo Register")
-        self.setGeometry(400, 300, 440, 300)
+        self.setWindowIcon(QIcon("logo.ico"))
+        self.setGeometry(400, 300, 800, 400)
         self.data = None
         self.current_record = None
         self.captured_frame = None
@@ -30,7 +43,7 @@ class MainApp(QMainWindow):
         # Campo de busca
         self.search_input = QLineEdit(self)
         self.search_input.setPlaceholderText("Digite para buscar...")
-        self.search_input.setGeometry(20, 30, 400, 30)
+        self.search_input.setGeometry(20, 70, 220, 30)
 
         # Configurar autocompletar
         self.completer = QCompleter()
@@ -40,45 +53,51 @@ class MainApp(QMainWindow):
 
         # Botão de carregar Excel
         self.load_button = QPushButton("Carregar Excel", self)
-        self.load_button.setGeometry(20, 70, 100, 30)
+        self.load_button.setGeometry(20, 20, 100, 30)
         self.load_button.clicked.connect(self.load_excel)
 
         # Botão de buscar
         self.search_button = QPushButton("Buscar", self)
-        self.search_button.setGeometry(130, 70, 100, 30)
+        self.search_button.setGeometry(245, 70, 100, 30)
         self.search_button.clicked.connect(self.search_and_capture)
 
         # Botão de capturar imagem
         self.capture_button = QPushButton("Capturar", self)
-        self.capture_button.setGeometry(20, 240, 100, 30)
+        self.capture_button.setGeometry(20, 312, 100, 30)
         self.capture_button.clicked.connect(self.capture_image)
         self.capture_button.setEnabled(False)
 
         # Botão de salvar imagem
         self.save_button = QPushButton("Salvar", self)
-        self.save_button.setGeometry(170, 240, 100, 30)
+        self.save_button.setGeometry(130, 312, 100, 30)
         self.save_button.clicked.connect(self.save_image)
         self.save_button.setVisible(False)
 
         # Botão de descartar imagem
         self.discard_button = QPushButton("Descartar", self)
-        self.discard_button.setGeometry(290, 240, 100, 30)
+        self.discard_button.setGeometry(240, 312, 100, 30)
         self.discard_button.clicked.connect(self.discard_image)
         self.discard_button.setVisible(False)
 
+        font = QFont()
+        font.setPointSize(14)
+
         # Labels para exibir os resultados
         self.matricula_label = QLabel("Matrícula: ", self)
-        self.matricula_label.setGeometry(20, 120, 400, 30)
+        self.matricula_label.setGeometry(20, 100, 400, 100)
+        self.matricula_label.setFont(font)
 
         self.nome_label = QLabel("Nome: ", self)
-        self.nome_label.setGeometry(20, 150, 400, 30)
+        self.nome_label.setGeometry(20, 150, 400, 100)
+        self.nome_label.setFont(font)
 
         self.setor_label = QLabel("Setor: ", self)
-        self.setor_label.setGeometry(20, 180, 400, 30)
+        self.setor_label.setGeometry(20, 200, 410, 100)
+        self.setor_label.setFont(font)
 
         # QLabel para exibir a miniatura da webcam
         self.webcam_label = QLabel(self)
-        self.webcam_label.setGeometry(240, 70, 180, 160)
+        self.webcam_label.setGeometry(370, 30, 400, 330)
         self.webcam_label.setStyleSheet("border: 1px solid black;")
 
         # Timer para atualizar a imagem da webcam em tempo real
@@ -87,10 +106,10 @@ class MainApp(QMainWindow):
 
         # ComboBox para alternar entre tema claro e escuro
         self.theme__label = QLabel("Tema: ", self)
-        self.theme__label.setGeometry(320, 265, 70, 30)
+        self.theme__label.setGeometry(370, 365, 70, 30)
         self.theme_combo = QComboBox(self)
         self.theme_combo.addItems(["Claro", "Escuro"])
-        self.theme_combo.setGeometry(350, 270, 70, 20)
+        self.theme_combo.setGeometry(400, 370, 70, 20)
         self.theme_combo.currentIndexChanged.connect(self.toggle_theme)
 
         # Inicializar atributos para webcam
@@ -178,11 +197,22 @@ class MainApp(QMainWindow):
                 QMessageBox.critical(self, "Erro", f"Erro ao carregar o arquivo: {e}")
 
     def update_completer(self, text):
-        if self.data is not None and len(text) >= 4:
+        if self.data is not None and len(text) >= 1:
             try:
-                filtered_names = self.data[self.data["NOME"].fillna("").str.contains(text, case=False, na=False)]["NOME"]
-                model = QStringListModel(filtered_names.tolist())
+                # Verifica se o texto digitado é numérico
+                if text.isdigit():
+                    # Busca na coluna MATRICULA e converte os valores para string
+                    filtered_matricula = self.data[self.data["MATRICULA"].astype(str).str.contains(text, na=False)][
+                        "MATRICULA"]
+                    model = QStringListModel(filtered_matricula.astype(str).tolist())  # Convertendo para string
+                else:
+                    # Busca na coluna NOME
+                    filtered_names = self.data[self.data["NOME"].fillna("").str.contains(text, case=False, na=False)][
+                        "NOME"]
+                    model = QStringListModel(filtered_names.tolist())
+
                 self.completer.setModel(model)
+
             except Exception as e:
                 QMessageBox.critical(self, "Erro", f"Erro ao atualizar sugestões: {e}")
 
@@ -197,7 +227,14 @@ class MainApp(QMainWindow):
             return
 
         try:
-            result = self.data[self.data["NOME"].fillna("").str.contains(query, case=False, na=False)]
+            # Verifica se o valor de query é numérico
+            if query.isdigit():
+                # Busca na coluna MATRICULA (convertendo para string)
+                result = self.data[self.data["MATRICULA"].astype(str).str.contains(query, na=False)]
+            else:
+                # Busca na coluna NOME
+                result = self.data[self.data["NOME"].fillna("").str.contains(query, case=False, na=False)]
+
             if not result.empty:
                 record = result.iloc[0]
                 self.current_record = record
@@ -226,7 +263,7 @@ class MainApp(QMainWindow):
                 h, w, _ = rgb_image.shape
                 qimg = QImage(rgb_image.data, w, h, 3 * w, QImage.Format_RGB888)
                 pixmap = QPixmap(qimg)
-                self.webcam_label.setPixmap(pixmap.scaled(180, 160, Qt.KeepAspectRatio))
+                self.webcam_label.setPixmap(pixmap.scaled(400, 380, Qt.KeepAspectRatio))
 
     def capture_image(self):
         if self.cap:
@@ -238,20 +275,77 @@ class MainApp(QMainWindow):
                 h, w, _ = rgb_image.shape
                 qimg = QImage(rgb_image.data, w, h, 3 * w, QImage.Format_RGB888)
                 pixmap = QPixmap(qimg)
-                self.webcam_label.setPixmap(pixmap.scaled(180, 160, Qt.KeepAspectRatio))
+                self.webcam_label.setPixmap(pixmap.scaled(400, 380, Qt.KeepAspectRatio))
                 self.capture_button.setEnabled(False)
                 self.save_button.setVisible(True)
                 self.discard_button.setVisible(True)
 
+    def crop_face(self, frame):
+        try:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)  # Converter para escala de cinza
+            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+
+            if len(faces) > 0:
+                # Considerar o primeiro rosto detectado
+                (x, y, w, h) = faces[0]
+
+                # Aumentar a área ao redor do rosto (margem de 30%)
+                margin_x = int(w * 0.3)
+                margin_y = int(h * 0.3)
+
+                # Ajustar as coordenadas para incluir a margem
+                x = max(x - margin_x, 0)
+                y = max(y - margin_y, 0)
+                w = min(w + 2 * margin_x, frame.shape[1] - x)
+                h = min(h + 2 * margin_y, frame.shape[0] - y)
+
+                # Recortar a região do rosto
+                cropped_face = frame[y:y + h, x:x + w]
+                return cropped_face
+            else:
+                QMessageBox.warning(self, "Aviso", "Nenhum rosto foi detectado na captura. Tente novamente.")
+                self.reset_capture()  # Nenhum rosto detectado
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Ocorreu um erro ao processar a captura: {str(e)}")
+            with open('arquivo.txt', 'w') as file:
+                # Escreve o texto no arquivo
+                file.write(f"{e}")
+            return None
+
     def save_image(self):
         if self.captured_frame is not None:
-            # Salvar a imagem na pasta do aplicativo
-            app_directory = os.path.dirname(os.path.abspath(__file__))
+            # Verifica se o código está em execução como um arquivo compilado
+            if getattr(sys, 'frozen', False):  # Executando como .exe
+                app_directory = os.path.dirname(sys.executable)
+            else:  # Em ambiente de desenvolvimento, ainda é um script .py
+                app_directory = os.path.dirname(os.path.abspath(__file__))
+
             matricula = str(self.current_record["MATRICULA"])
-            filename = f"{matricula}.png"
+            filename = f"{matricula}.jpg"
             file_path = os.path.join(app_directory, filename)
-            cv2.imwrite(file_path, self.captured_frame)
-            QMessageBox.information(self, "Imagem Salva", f"Imagem salva em '{file_path}'.")
+
+            # Salvar a imagem
+            photoFinal = self.crop_face(self.captured_frame)
+
+            if photoFinal is not None:
+                quality = 90  # Qualidade inicial
+                is_saved = False
+
+                while quality > 10:  # Diminuir qualidade até que a imagem fique abaixo de 200 KB
+                    _, buffer = cv2.imencode('.jpg', photoFinal, [cv2.IMWRITE_JPEG_QUALITY, quality])
+                    if len(buffer) <= 200 * 1024:  # Tamanho em bytes
+                        with open(file_path, 'wb') as f:
+                            f.write(buffer)
+                        is_saved = True
+                        break
+                    quality -= 10  # Reduzir qualidade em 10%
+
+                if is_saved:
+                    QMessageBox.information(self, "Imagem Salva",
+                                            f"Imagem salva em '{file_path}' com qualidade {quality}%.")
+                else:
+                    QMessageBox.warning(self, "Erro", "Não foi possível salvar a imagem com tamanho abaixo de 200 KB.")
+
             self.reset_capture()
 
     def discard_image(self):
